@@ -61,6 +61,8 @@ function generateParcels(config) {
       parcels.push({
         id: "P" + id,
         index: id,
+        // Human-readable street address; filled in below from BUILDING_NAMES.
+        name: "P" + id,
         bounds,
         center: [lat - dLat / 2, lng + dLng / 2],
         acres,
@@ -78,7 +80,29 @@ function generateParcels(config) {
       id++;
     }
   }
+
+  assignParcelNames(parcels, config);
   return parcels;
+}
+
+// Give each parcel a real-world street address from BUILDING_NAMES. A separate
+// seeded RNG shuffles the address pool so names are varied yet deterministic per
+// zip, without perturbing the parcel-geometry RNG stream above.
+function assignParcelNames(parcels, config) {
+  if (typeof BUILDING_NAMES === "undefined" || BUILDING_NAMES.length === 0) {
+    return;
+  }
+  const pool = BUILDING_NAMES.slice();
+  const rng = makeRng(seedFromString(config.zip + "|names"));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  parcels.forEach((p, i) => {
+    p.name = pool[i % pool.length];
+  });
 }
 
 class Game {
@@ -281,7 +305,7 @@ class Game {
       return { ok: false, msg: "Not enough cash for this plot." };
     this.cash -= p.price;
     p.owned = true;
-    return { ok: true, msg: `Purchased ${p.id} for ${money(p.price)}.` };
+    return { ok: true, msg: `Purchased ${p.name} for ${money(p.price)}.` };
   }
 
   addPanels(parcelId, typeId, count) {
@@ -298,14 +322,14 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for ${n} panels.` };
     this.cash -= cost;
     p.panels[typeId] = (p.panels[typeId] || 0) + n;
-    return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.id}.` };
+    return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.name}.` };
   }
 
   setTilt(parcelId, deg) {
     const p = this.parcels.find((x) => x.id === parcelId);
     if (!p || !p.owned) return { ok: false, msg: "Unavailable." };
     p.tilt = Math.max(0, Math.min(60, Math.round(deg)));
-    return { ok: true, msg: `Set ${p.id} tilt to ${p.tilt}°.`, quiet: true };
+    return { ok: true, msg: `Set ${p.name} tilt to ${p.tilt}°.`, quiet: true };
   }
 
   addSheep(parcelId, count) {
@@ -316,7 +340,7 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for ${count} sheep.` };
     this.cash -= cost;
     p.sheep += count;
-    return { ok: true, msg: `Added ${count} sheep to ${p.id}.` };
+    return { ok: true, msg: `Added ${count} sheep to ${p.name}.` };
   }
 
   addBattery(parcelId, typeId, count) {
@@ -330,7 +354,7 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for that storage.` };
     this.cash -= cost;
     p.batteries[typeId] = (p.batteries[typeId] || 0) + count;
-    return { ok: true, msg: `Installed ${count} × ${b.name} on ${p.id}.` };
+    return { ok: true, msg: `Installed ${count} × ${b.name} on ${p.name}.` };
   }
 
   // Advance one month: produce energy, earn revenue, pay upkeep, grant budget.
