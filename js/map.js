@@ -65,12 +65,12 @@ class GameMap {
 
   tooltipFor(p) {
     if (!p.owned) {
-      return `<b>${p.id}</b> — For sale<br>${p.acres} ac · sun ${(
+      return `<b>${p.name}</b> — For sale<br>${p.acres} ac · sun ${(
         p.sunQuality * 100
       ).toFixed(0)}%<br><b>${money(p.price)}</b>`;
     }
     const panels = this.game.parcelPanelCount(p);
-    return `<b>${p.id}</b> — Owned<br>${panels}/${p.maxPanels} panels`;
+    return `<b>${p.name}</b> — Owned<br>${panels}/${p.maxPanels} panels`;
   }
 
   refresh() {

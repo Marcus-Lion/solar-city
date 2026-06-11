@@ -1,0 +1,155 @@
+NBR,ADDRESS,BLDG,DESCRIPTION
+2000,World Parkway Blvd,3,2000 World Parkway Blvd
+2001,World Parkway Blvd,1,2001 World Parkway Blvd
+2002,Australia Way,1,2002 Australia Way
+2011,Australia Way,2,2011 Australia Way
+2019,Utopian Dr.,95,2019 Utopian Dr.
+2020,World Parkway Blvd,4,2020 World Parkway Blvd
+2020,Shangrila,95,2020 Shangrila
+2021,Australia Way,4,2021 Australia Way
+2021,Shangrila,94,2021 Shangrila
+2022,Camelot,94,2022 Camelot
+2040,World Parkway Blvd,11,2040 World Parkway Blvd
+2041,Australia Way,11,2041 Australia Way
+2042,Australia Way,12,2042 Australia Way
+2043,Denmark Street,22,2043 Denmark Street
+2070,World Parkway Blvd,15,2070 World Parkway Blvd
+2071,Australia Way,15,2071 Australia Way
+2072,Australia Way,14,2072 Australia Way
+2073,Denmark Street,14,2073 Denmark Street
+2100,World Parkway Blvd,19,2100 World Parkway Blvd
+2170,Americus,84,2170 Americus
+2192,Swedish,78,2192 Swedish
+2200,World Parkway Blvd,33,2200 World Parkway Blvd
+2209,Utopian,91,2209 Utopian
+2210,Utopian,96,2210 Utopian
+2220,Swedish,77,2220 Swedish
+2220,Spanish,90,2220 Spanish
+2221,Swedish,76,2221 Swedish
+2221,Norwegian,90,2221 Norwegian
+2222,Americus,76,2222 Americus
+2222,Norwegian,85,2222 Norwegian
+2223,Philippine,85,2223 Philippine
+2226,Switzerland,79,2226 Switzerland
+2228,Swedish,71,2228 Swedish
+2229,Americus,71,2229 Americus
+2231,Utopian,92,2231 Utopian
+2253,Norwegian,89,2253 Norwegian
+2254,Norwegian,86,2254 Norwegian
+2255,Philippine,86,2255 Philippine
+2256,Philippine,83,2256 Philippine
+2256,Spanish,89,2256 Spanish
+2257,World Parkway Blvd,83,2257 World Parkway Blvd
+2258,World Parkway Blvd,80,2258 World Parkway Blvd
+2259,Costa Rican,80,2259 Costa Rican
+2260,Costa Rican,75,2260 Costa Rican
+2261,Swedish,75,2261 Swedish
+2262,Swedish,72,2262 Swedish
+2263,Americus,72,2263 Americus
+2280,World Parkway Blvd,46,2280 World Parkway Blvd
+2284,Philippine,82,2284 Philippine
+2284,Spanish,88,2284 Spanish
+2285,Israeli,50,2285 Israeli
+2285,Norwegian,88,2285 Norwegian
+2286,Mexican,50,2286 Mexican
+2286,Norwegian,87,2286 Norwegian
+2287,Philippine,87,2287 Philippine
+2291,Americus,70,2291 Americus
+2292,Austrian,69,2292 Austrian
+2292,Costa Rican,74,2292 Costa Rican
+2293,Austrian,68,2293 Austrian
+2293,Swedish,74,2293 Swedish
+2294,Belgian,67,2294 Belgian
+2294,Swedish,73,2294 Swedish
+2295,Mexican,51,2295 Mexican
+2295,Belgian,66,2295 Belgian
+2295,Americus,73,2295 Americus
+2296,Monaco,65,2296 Monaco
+2297,Monaco,64,2297 Monaco
+2298,Netherlands,52,2298 Netherlands
+2298,Americus,63,2298 Americus
+2310,Denmark Street,18A,2310 Denmark Street
+2311,Brisbane,18A,2311 Brisbane
+2320,Brisbane,18,2320 Brisbane
+2321,Ecuadorian,18,2321 Ecuadorian
+2330,Ecuadorian,34,2330 Ecuadorian
+2331,Finlandia,34,2331 Finlandia
+2340,Grecian,36,2340 Grecian
+2341,Haitian,36,2341 Haitian
+2350,Haitian,37,2350 Haitian
+2351,Irish,37,2351 Irish
+2358,Ecuadorian,32,2358 Ecuadorian
+2359,Finlandia,32,2359 Finlandia
+2360,World Parkway Blvd,21,2360 World Parkway Blvd
+2360,Irish,47,2360 Irish
+2361,Ecuadorian,21,2361 Ecuadorian
+2361,Jamaican,47,2361 Jamaican
+2362,Jamaican,49,2362 Jamaican
+2363,Israeli,49,2363 Israeli
+2370,Jamaican,48,2370 Jamaican
+2371,Israeli,48,2371 Israeli
+2378,Ecuadorian,31,2378 Ecuadorian
+2379,Finlandia,31,2379 Finlandia
+2380,World Parkway Blvd,22,2380 World Parkway Blvd
+2381,Ecuadorian,22,2381 Ecuadorian
+2383,Netherlands,61,2383 Netherlands
+2384,Tahitian,61,2384 Tahitian
+2385,Tahitian,60,2385 Tahitian
+2386,Sumatran,60,2386 Sumatran
+2391,Sumatran,59,2391 Sumatran
+2400,Columbia,23,2400 Columbia
+2400,Franciscan,38,2400 Franciscan
+2401,Ecuadorian,23,2401 Ecuadorian
+2401,Franciscan,39,2401 Franciscan
+2402,Ecuadorian,30,2402 Ecuadorian
+2403,Finlandia,30,2403 Finlandia
+2404,Florentine,40,2404 Florentine
+2405,Franciscan,40,2405 Franciscan
+2410,Franciscan,45,2410 Franciscan
+2416,World Parkway Blvd,53,2416 World Parkway Blvd
+2417,Persian,53,2417 Persian
+2426,Ecuadorian,29,2426 Ecuadorian
+2426,Persian,56,2426 Persian
+2427,Finlandia,29,2427 Finlandia
+2427,Rhodesian,56,2427 Rhodesian
+2428,Columbia,24,2428 Columbia
+2429,Ecuadorian,24,2429 Ecuadorian
+2430,Brazilia,10,2430 Brazilia
+2430,Florentine,41,2430 Florentine
+2431,Canadian,10,2431 Canadian
+2431,Franciscan,41,2431 Franciscan
+2433,Brazilia,5,2433 Brazilia
+2434,Australia Way,5,2434 Australia Way
+2435,Sumatran,57,2435 Sumatran
+2436,Rhodesian,57,2436 Rhodesian
+2440,World Parkway Blvd,54,2440 World Parkway Blvd
+2441,Persian,54,2441 Persian
+2447,Ecuadorian,25,2447 Ecuadorian
+2448,Columbia,25,2448 Columbia
+2449,Columbia,16,2449 Columbia
+2450,Canadian,16,2450 Canadian
+2451,Canadian,9,2451 Canadian
+2452,Brazilia,9,2452 Brazilia
+2453,Brazilia,6,2453 Brazilia
+2454,Australia Way,6,2454 Australia Way
+2455,Finlandia,28,2455 Finlandia
+2456,Ecuadorian,28,2456 Ecuadorian
+2457,Ecuadorian,26,2457 Ecuadorian
+2458,Columbia,26,2458 Columbia
+2458,Florentine,42,2458 Florentine
+2459,Columbia,17,2459 Columbia
+2459,Franciscan,42,2459 Franciscan
+2460,Canadian,17,2460 Canadian
+2460,Franciscan,44,2460 Franciscan
+2460,Persian,55,2460 Persian
+2461,Canadian,8,2461 Canadian
+2461,Rhodesian,55,2461 Rhodesian
+2462,Brazilia,8,2462 Brazilia
+2463,Brazilia,7,2463 Brazilia
+2464,Australia Way,7,2464 Australia Way
+2466,Ecuadorian,27,2466 Ecuadorian
+2467,Finlandia,27,2467 Finlandia
+2468,Florentine,43,2468 Florentine
+2469,Franciscan,43,2469 Franciscan
+2470,Rhodesian,58,2470 Rhodesian
+2471,Sumatran,58,2471 Sumatran

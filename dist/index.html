@@ -1103,6 +1103,165 @@ const GOALS = [
   { id: "shepherd", name: "Raise a flock of 25 sheep", reward: 3000,
     test: (g) => g.totalSheep() >= 25 },
 ];
+
+// Real-world building addresses for zip 33763 (source: county parcel data,
+// docs/buildings.csv). Parcels are labeled with these instead of "P0", "P1".
+const BUILDING_NAMES = [
+  "2000 World Parkway Blvd",
+  "2001 World Parkway Blvd",
+  "2002 Australia Way",
+  "2011 Australia Way",
+  "2019 Utopian Dr.",
+  "2020 World Parkway Blvd",
+  "2020 Shangrila",
+  "2021 Australia Way",
+  "2021 Shangrila",
+  "2022 Camelot",
+  "2040 World Parkway Blvd",
+  "2041 Australia Way",
+  "2042 Australia Way",
+  "2043 Denmark Street",
+  "2070 World Parkway Blvd",
+  "2071 Australia Way",
+  "2072 Australia Way",
+  "2073 Denmark Street",
+  "2100 World Parkway Blvd",
+  "2170 Americus",
+  "2192 Swedish",
+  "2200 World Parkway Blvd",
+  "2209 Utopian",
+  "2210 Utopian",
+  "2220 Swedish",
+  "2220 Spanish",
+  "2221 Swedish",
+  "2221 Norwegian",
+  "2222 Americus",
+  "2222 Norwegian",
+  "2223 Philippine",
+  "2226 Switzerland",
+  "2228 Swedish",
+  "2229 Americus",
+  "2231 Utopian",
+  "2253 Norwegian",
+  "2254 Norwegian",
+  "2255 Philippine",
+  "2256 Philippine",
+  "2256 Spanish",
+  "2257 World Parkway Blvd",
+  "2258 World Parkway Blvd",
+  "2259 Costa Rican",
+  "2260 Costa Rican",
+  "2261 Swedish",
+  "2262 Swedish",
+  "2263 Americus",
+  "2280 World Parkway Blvd",
+  "2284 Philippine",
+  "2284 Spanish",
+  "2285 Israeli",
+  "2285 Norwegian",
+  "2286 Mexican",
+  "2286 Norwegian",
+  "2287 Philippine",
+  "2291 Americus",
+  "2292 Austrian",
+  "2292 Costa Rican",
+  "2293 Austrian",
+  "2293 Swedish",
+  "2294 Belgian",
+  "2294 Swedish",
+  "2295 Mexican",
+  "2295 Belgian",
+  "2295 Americus",
+  "2296 Monaco",
+  "2297 Monaco",
+  "2298 Netherlands",
+  "2298 Americus",
+  "2310 Denmark Street",
+  "2311 Brisbane",
+  "2320 Brisbane",
+  "2321 Ecuadorian",
+  "2330 Ecuadorian",
+  "2331 Finlandia",
+  "2340 Grecian",
+  "2341 Haitian",
+  "2350 Haitian",
+  "2351 Irish",
+  "2358 Ecuadorian",
+  "2359 Finlandia",
+  "2360 World Parkway Blvd",
+  "2360 Irish",
+  "2361 Ecuadorian",
+  "2361 Jamaican",
+  "2362 Jamaican",
+  "2363 Israeli",
+  "2370 Jamaican",
+  "2371 Israeli",
+  "2378 Ecuadorian",
+  "2379 Finlandia",
+  "2380 World Parkway Blvd",
+  "2381 Ecuadorian",
+  "2383 Netherlands",
+  "2384 Tahitian",
+  "2385 Tahitian",
+  "2386 Sumatran",
+  "2391 Sumatran",
+  "2400 Columbia",
+  "2400 Franciscan",
+  "2401 Ecuadorian",
+  "2401 Franciscan",
+  "2402 Ecuadorian",
+  "2403 Finlandia",
+  "2404 Florentine",
+  "2405 Franciscan",
+  "2410 Franciscan",
+  "2416 World Parkway Blvd",
+  "2417 Persian",
+  "2426 Ecuadorian",
+  "2426 Persian",
+  "2427 Finlandia",
+  "2427 Rhodesian",
+  "2428 Columbia",
+  "2429 Ecuadorian",
+  "2430 Brazilia",
+  "2430 Florentine",
+  "2431 Canadian",
+  "2431 Franciscan",
+  "2433 Brazilia",
+  "2434 Australia Way",
+  "2435 Sumatran",
+  "2436 Rhodesian",
+  "2440 World Parkway Blvd",
+  "2441 Persian",
+  "2447 Ecuadorian",
+  "2448 Columbia",
+  "2449 Columbia",
+  "2450 Canadian",
+  "2451 Canadian",
+  "2452 Brazilia",
+  "2453 Brazilia",
+  "2454 Australia Way",
+  "2455 Finlandia",
+  "2456 Ecuadorian",
+  "2457 Ecuadorian",
+  "2458 Columbia",
+  "2458 Florentine",
+  "2459 Columbia",
+  "2459 Franciscan",
+  "2460 Canadian",
+  "2460 Franciscan",
+  "2460 Persian",
+  "2461 Canadian",
+  "2461 Rhodesian",
+  "2462 Brazilia",
+  "2463 Brazilia",
+  "2464 Australia Way",
+  "2466 Ecuadorian",
+  "2467 Finlandia",
+  "2468 Florentine",
+  "2469 Franciscan",
+  "2470 Rhodesian",
+  "2471 Sumatran",
+];
 /* SolarCity — core game state & simulation engine (framework-free). */
 
 // Tiny deterministic PRNG (mulberry32) so the generated land plots are
@@ -1166,6 +1325,8 @@ function generateParcels(config) {
       parcels.push({
         id: "P" + id,
         index: id,
+        // Human-readable street address; filled in below from BUILDING_NAMES.
+        name: "P" + id,
         bounds,
         center: [lat - dLat / 2, lng + dLng / 2],
         acres,
@@ -1183,7 +1344,29 @@ function generateParcels(config) {
       id++;
     }
   }
+
+  assignParcelNames(parcels, config);
   return parcels;
+}
+
+// Give each parcel a real-world street address from BUILDING_NAMES. A separate
+// seeded RNG shuffles the address pool so names are varied yet deterministic per
+// zip, without perturbing the parcel-geometry RNG stream above.
+function assignParcelNames(parcels, config) {
+  if (typeof BUILDING_NAMES === "undefined" || BUILDING_NAMES.length === 0) {
+    return;
+  }
+  const pool = BUILDING_NAMES.slice();
+  const rng = makeRng(seedFromString(config.zip + "|names"));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  parcels.forEach((p, i) => {
+    p.name = pool[i % pool.length];
+  });
 }
 
 class Game {
@@ -1386,7 +1569,7 @@ class Game {
       return { ok: false, msg: "Not enough cash for this plot." };
     this.cash -= p.price;
     p.owned = true;
-    return { ok: true, msg: `Purchased ${p.id} for ${money(p.price)}.` };
+    return { ok: true, msg: `Purchased ${p.name} for ${money(p.price)}.` };
   }
 
   addPanels(parcelId, typeId, count) {
@@ -1403,14 +1586,14 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for ${n} panels.` };
     this.cash -= cost;
     p.panels[typeId] = (p.panels[typeId] || 0) + n;
-    return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.id}.` };
+    return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.name}.` };
   }
 
   setTilt(parcelId, deg) {
     const p = this.parcels.find((x) => x.id === parcelId);
     if (!p || !p.owned) return { ok: false, msg: "Unavailable." };
     p.tilt = Math.max(0, Math.min(60, Math.round(deg)));
-    return { ok: true, msg: `Set ${p.id} tilt to ${p.tilt}°.`, quiet: true };
+    return { ok: true, msg: `Set ${p.name} tilt to ${p.tilt}°.`, quiet: true };
   }
 
   addSheep(parcelId, count) {
@@ -1421,7 +1604,7 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for ${count} sheep.` };
     this.cash -= cost;
     p.sheep += count;
-    return { ok: true, msg: `Added ${count} sheep to ${p.id}.` };
+    return { ok: true, msg: `Added ${count} sheep to ${p.name}.` };
   }
 
   addBattery(parcelId, typeId, count) {
@@ -1435,7 +1618,7 @@ class Game {
       return { ok: false, msg: `Need ${money(cost)} for that storage.` };
     this.cash -= cost;
     p.batteries[typeId] = (p.batteries[typeId] || 0) + count;
-    return { ok: true, msg: `Installed ${count} × ${b.name} on ${p.id}.` };
+    return { ok: true, msg: `Installed ${count} × ${b.name} on ${p.name}.` };
   }
 
   // Advance one month: produce energy, earn revenue, pay upkeep, grant budget.
@@ -1594,12 +1777,12 @@ class GameMap {
 
   tooltipFor(p) {
     if (!p.owned) {
-      return `<b>${p.id}</b> — For sale<br>${p.acres} ac · sun ${(
+      return `<b>${p.name}</b> — For sale<br>${p.acres} ac · sun ${(
         p.sunQuality * 100
       ).toFixed(0)}%<br><b>${money(p.price)}</b>`;
     }
     const panels = this.game.parcelPanelCount(p);
-    return `<b>${p.id}</b> — Owned<br>${panels}/${p.maxPanels} panels`;
+    return `<b>${p.name}</b> — Owned<br>${panels}/${p.maxPanels} panels`;
   }
 
   refresh() {
@@ -1711,7 +1894,8 @@ class UI {
 
     if (!p.owned) {
       box.innerHTML = `
-        <h3>${p.id} — For Sale</h3>
+        <h3>${p.name} — For Sale</h3>
+        <div class="muted small">Parcel ${p.id}</div>
         <div class="kv"><span>Size</span><b>${p.acres} acres</b></div>
         <div class="kv"><span>Sun quality</span><b>${(p.sunQuality * 100).toFixed(0)}%</b></div>
         <div class="kv"><span>Panel capacity</span><b>${p.maxPanels} panels</b></div>
@@ -1773,7 +1957,8 @@ class UI {
     const over = p.sheep > cap;
 
     box.innerHTML = `
-      <h3>${p.id} — Owned</h3>
+      <h3>${p.name} — Owned</h3>
+      <div class="muted small">Parcel ${p.id}</div>
       <div class="kv"><span>Capacity</span><b>${parcelKw.toFixed(1)} kW</b></div>
       <div class="kv"><span>Panels</span><b>${used} / ${p.maxPanels}</b></div>
       <div class="fill"><div class="fill-bar" style="width:${built * 100}%"></div></div>
