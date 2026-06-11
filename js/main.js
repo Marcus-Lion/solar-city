@@ -7,7 +7,11 @@ window.addEventListener("DOMContentLoaded", () => {
     `${CONFIG.cityName} · ${CONFIG.zip}`;
 
   let ui;
-  const gameMap = new GameMap(game, (parcelId) => ui.selectParcel(parcelId));
+  const gameMap = new GameMap(
+    game,
+    (parcelId) => ui.selectParcel(parcelId),
+    () => ui && ui.renderGoals()
+  );
   ui = new UI(game, gameMap);
 
   // Expose for debugging in the console.

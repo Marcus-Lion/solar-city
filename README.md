@@ -69,20 +69,32 @@ python3 -m http.server 8000
 Leaflet is vendored locally under `vendor/leaflet/`, so the only thing that
 needs an internet connection is the map tiles (served by OpenStreetMap).
 
-## Real building plots
+## Live Clearwater parcels
 
-With `CONFIG.useRealPlots = true`, the plots are the **real buildings** of the
-On Top of the World community in Clearwater, FL (zip 33763) rather than a
-synthetic grid. `BUILDING_PLOTS` in `js/data.js` holds one entry per building —
-`{ name, lat, lng, units }` — where `name` is the street address, `lat/lng` is
-the building location, and `units` is the apartment-unit count (a proxy for
-building size that drives acreage, panel capacity, and price). The data comes
-from [Pinellas County GIS](https://egis.pinellas.gov) address points matched to
-`docs/buildings.csv`. The map auto-fits to show every plot.
+With `CONFIG.liveParcels.enabled = true` (the default), the plots are **every
+real parcel in the City of Clearwater** (~69,000 of them), streamed on demand
+from [Pinellas County GIS](https://egis.pinellas.gov) as you pan and zoom. The
+game starts with no plots; whenever the map stops moving, `GameMap.loadViewport`
+queries the county `Parcels` layer for parcels intersecting the current viewport
+(`SITE_CITY='CLEARWATER'`, up to `maxPerView` per request) and adds any not yet
+loaded. Each parcel is drawn as its **real lot polygon**; its name is the county
+`SITE_ADDRESS`, its size is the county `Acres`, and a deterministic per-parcel
+seed (from `PARCELID`) sets sun quality, panel capacity, and price so the world
+is stable across reloads. A status box (top-right) shows how many plots are
+loaded and prompts you to zoom in when a view is capped. The query is CORS-
+enabled, so it runs straight from the browser with no backend; this is the only
+feature that needs network beyond the map tiles. Below `minZoom` the loader
+pauses (too many parcels to draw at city scale) — zoom in to populate plots.
 
-Set `CONFIG.useRealPlots = false` to fall back to the deterministic synthetic
-grid (which labels parcels from the `BUILDING_NAMES` address pool) for zips
-without real plot data.
+### Fixed plot sets (fallback)
+
+Set `CONFIG.liveParcels.enabled = false` to use a fixed plot set instead. With
+`CONFIG.useRealPlots = true`, the plots are the **real buildings** of the On Top
+of the World community (zip 33763): `BUILDING_PLOTS` in `js/data.js` holds one
+`{ name, lat, lng, units }` per building (address points matched to
+`docs/buildings.csv`), and the map auto-fits to show every plot. With
+`useRealPlots = false`, plots fall back to the deterministic synthetic grid
+(labeled from the `BUILDING_NAMES` address pool) for zips without real data.
 
 ## Change the zip code
 
