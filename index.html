@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SolarCity — Solar Tycoon for a Real Zip</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">☀</span>
+        <div>
+          <h1>SolarCity</h1>
+          <div class="sub" id="zip-label">—</div>
+        </div>
+      </div>
+      <div class="stats">
+        <div class="stat"><label>Cash</label><span id="stat-cash">$0</span></div>
+        <div class="stat"><label>Date</label><span id="stat-date">—</span></div>
+        <div class="stat"><label>Capacity</label><span id="stat-capacity">0 kW</span></div>
+        <div class="stat"><label>Storage</label><span id="stat-storage">0 kWh</span></div>
+        <div class="stat"><label>CO₂ saved</label><span id="stat-co2">0 t</span></div>
+        <div class="stat"><label>Score</label><span id="stat-score">0</span></div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div class="map-overlay">
+          <div class="level-box">
+            <div class="level-top">
+              <span id="stat-level">L1</span>
+              <span id="level-hint" class="muted small"></span>
+            </div>
+            <div class="level-track"><div id="level-bar" class="level-fill"></div></div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="sidebar">
+        <div class="panel advance-panel">
+          <button id="advance-btn" class="btn primary big">▶ Advance Month</button>
+          <div id="advance-preview" class="muted small"></div>
+          <div id="last-month" class="last-month"></div>
+          <div id="history" class="history"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Plot</h2>
+          <div id="inspector"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Goals</h2>
+          <ul id="goals" class="goals"></ul>
+        </div>
+
+        <div class="panel how">
+          <h2>How to play</h2>
+          <ol>
+            <li>Click a green <b>For Sale</b> plot and buy it.</li>
+            <li>Install <b>solar panels</b> (and batteries) on it.</li>
+            <li>Press <b>Advance Month</b> to produce energy & earn cash.</li>
+            <li>Reinvest your monthly budget, grow capacity, level up.</li>
+          </ol>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toasts" class="toasts"></div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="js/data.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/map.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/main.js"></script>
+  </body>
+</html>
