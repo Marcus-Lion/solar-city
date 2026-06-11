@@ -158,6 +158,20 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .shop-info { flex: 1; min-width: 0; font-size: 13px; }
 .shop-actions { display: flex; gap: 4px; }
 
+/* ---------- tilt slider ---------- */
+.tilt-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; }
+.tilt-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tilt-deg {
+  min-width: 38px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--accent);
+}
+
 /* ---------- goals ---------- */
 .goals { list-style: none; margin: 0; padding: 0; }
 .goals li {

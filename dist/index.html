@@ -827,6 +827,20 @@ body { display: flex; flex-direction: column; height: 100vh; }
 .shop-info { flex: 1; min-width: 0; font-size: 13px; }
 .shop-actions { display: flex; gap: 4px; }
 
+/* ---------- tilt slider ---------- */
+.tilt-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; }
+.tilt-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.tilt-deg {
+  min-width: 38px;
+  text-align: right;
+  font-weight: 700;
+  color: var(--accent);
+}
+
 /* ---------- goals ---------- */
 .goals { list-style: none; margin: 0; padding: 0; }
 .goals li {
@@ -963,6 +977,8 @@ const CONFIG = {
   // Map center for zip 33763 (Clearwater, Florida).
   center: { lat: 27.9756, lng: -82.729 },
   zoom: 16,
+  // Site latitude drives the optimal panel tilt (≈ latitude for max annual yield).
+  latitude: 27.98,
 
   startingCash: 35000,
   // Monthly investment allowance ("budget") injected each month, on top of energy revenue.
@@ -974,6 +990,7 @@ const CONFIG = {
   co2KgPerKwh: 0.42, // grid carbon intensity offset per kWh produced
 
   performanceRatio: 0.8, // system losses (inverter, wiring, soiling, temp)
+  panelsPerAcre: 320, // usable panel density (~one 400W panel per ~2.5 m²)
 
   // Average daily peak-sun-hours by month for the Tampa Bay / Clearwater area.
   // Index 0 = January ... 11 = December.
@@ -993,6 +1010,7 @@ const PANEL_TYPES = [
     name: "Standard 400W",
     wattage: 400,
     cost: 250,
+    yieldFactor: 1.0, // baseline energy per nameplate watt
     unlockLevel: 1,
     color: "#3b82f6",
     blurb: "Reliable monocrystalline workhorse.",
@@ -1002,6 +1020,7 @@ const PANEL_TYPES = [
     name: "Premium 450W",
     wattage: 450,
     cost: 360,
+    yieldFactor: 1.08, // better low-light & temperature behavior
     unlockLevel: 2,
     color: "#22c55e",
     blurb: "Higher efficiency, better low-light yield.",
@@ -1011,6 +1030,7 @@ const PANEL_TYPES = [
     name: "Bifacial 500W",
     wattage: 500,
     cost: 520,
+    yieldFactor: 1.18, // rear-side gain from reflected light
     unlockLevel: 3,
     color: "#a855f7",
     blurb: "Captures reflected light from both sides.",
@@ -1039,6 +1059,19 @@ const BATTERY_TYPES = [
   },
 ];
 
+// Sheep (agrivoltaics): graze the grass under the panels, cutting maintenance,
+// and grow the flock for monthly meat revenue.
+const SHEEP = {
+  cost: 220, // $ to buy one ewe
+  acresPerSheep: 0.2, // carrying capacity: ~5 sheep/acre under rotational grazing
+  monthlyGrowth: 0.05, // flock breeding rate per month (compounding)
+  meatRevenuePerSheepPerMonth: 9, // $/sheep/month from meat & wool
+  // Grazing offsets vegetation maintenance: a fully-stocked parcel removes this
+  // fraction of its panels' upkeep (less mowing/landscaping).
+  upkeepReductionPerPanel: 0.6,
+  color: "#e2e8f0",
+};
+
 // Level thresholds keyed on total installed capacity in kW (DC).
 // Reaching a level unlocks new gear and raises your prestige.
 const LEVELS = [
@@ -1065,6 +1098,10 @@ const GOALS = [
     test: (g) => g.lifetimeKwh >= 10000 },
   { id: "land_baron", name: "Own 5 plots of land", reward: 8000,
     test: (g) => g.ownedParcels().length >= 5 },
+  { id: "well_tuned", name: "Tune a parcel within 2\u00b0 of optimal tilt", reward: 2500,
+    test: (g) => g.ownedParcels().some((p) => g.parcelPanelCount(p) > 0 && Math.abs(p.tilt - g.optimalAnnualTilt()) <= 2) },
+  { id: "shepherd", name: "Raise a flock of 25 sheep", reward: 3000,
+    test: (g) => g.totalSheep() >= 25 },
 ];
 /* SolarCity — core game state & simulation engine (framework-free). */
 
@@ -1120,7 +1157,7 @@ function generateParcels(config) {
       // Sun quality 0.85 - 1.10 (shading, orientation).
       const sunQuality = +(0.85 + rng() * 0.25).toFixed(3);
       // Max panels scales with area (~one 400W panel per ~2.5 m^2 usable).
-      const maxPanels = Math.round(acres * 320);
+      const maxPanels = Math.round(acres * config.panelsPerAcre);
       // Price scales with area and sun quality.
       const price = Math.round(
         (6000 + acres * 22000 + (sunQuality - 0.85) * 40000) / 500
@@ -1136,6 +1173,9 @@ function generateParcels(config) {
         maxPanels,
         price,
         owned: false,
+        // Mounting tilt in degrees; defaults to the latitude-optimal annual tilt.
+        tilt: Math.round(config.latitude),
+        sheep: 0,
         // installed gear: { panelTypeId: count }, batteries: { batteryTypeId: count }
         panels: {},
         batteries: {},
@@ -1181,19 +1221,67 @@ class Game {
     return this.parcelPanelCount(p);
   }
 
+  // ---- tilt physics ----
+  // Solar declination (deg) for a representative day in each month.
+  solarDeclination(monthIdx) {
+    const dayOfYear = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349][monthIdx];
+    return 23.45 * Math.sin((2 * Math.PI / 365) * (dayOfYear - 81));
+  }
+  // Tilt (deg) that maximizes irradiance at solar noon for a given month.
+  optimalTilt(monthIdx) {
+    return this.config.latitude - this.solarDeclination(monthIdx);
+  }
+  // Single fixed tilt that best serves the whole year (sun-weighted).
+  optimalAnnualTilt() {
+    if (this._optTilt != null) return this._optTilt;
+    let best = 0, bestScore = -1;
+    for (let t = 0; t <= 60; t++) {
+      let s = 0;
+      for (let m = 0; m < 12; m++) {
+        s += this.config.peakSunHours[m] * this.config.daysInMonth[m] * this.tiltFactor(t, m);
+      }
+      if (s > bestScore) { bestScore = s; best = t; }
+    }
+    this._optTilt = best;
+    return best;
+  }
+  // Relative output (0..1) of a tilt vs. that month's optimum. A floor models
+  // diffuse/ground-reflected light that reaches even a poorly aimed panel.
+  tiltFactor(tilt, monthIdx) {
+    const diff = ((tilt - this.optimalTilt(monthIdx)) * Math.PI) / 180;
+    const beam = Math.cos(diff);
+    return 0.18 + 0.82 * Math.max(0, beam);
+  }
+
   totalPanels() {
     return this.ownedParcels().reduce((a, p) => a + this.parcelPanelCount(p), 0);
   }
 
-  totalCapacityKw() {
+  // Nameplate DC capacity of one parcel (kW) — used for levels & display.
+  parcelCapacityKw(p) {
     let w = 0;
-    for (const p of this.ownedParcels()) {
-      for (const [tid, n] of Object.entries(p.panels)) {
-        const t = this.panelType(tid);
-        if (t) w += t.wattage * n;
-      }
+    for (const [tid, n] of Object.entries(p.panels)) {
+      const t = this.panelType(tid);
+      if (t) w += t.wattage * n;
     }
     return w / 1000;
+  }
+
+  // Yield-weighted capacity (kW) — folds each panel type's yieldFactor in, so
+  // higher tiers produce more energy per slot of limited land.
+  parcelYieldKw(p) {
+    let w = 0;
+    for (const [tid, n] of Object.entries(p.panels)) {
+      const t = this.panelType(tid);
+      if (t) w += t.wattage * n * (t.yieldFactor || 1);
+    }
+    return w / 1000;
+  }
+
+  totalCapacityKw() {
+    let kw = 0;
+    for (const p of this.ownedParcels()) kw += this.parcelCapacityKw(p);
+    return kw;
   }
 
   totalBatteryKwh() {
@@ -1219,19 +1307,69 @@ class Game {
     return LEVELS.find((l) => l.capacityKw > cap) || null;
   }
 
-  // Estimated production for a given month index (0-11) across all owned land.
-  estimateMonthKwh(monthIdx) {
+  // ---- sheep / agrivoltaics ----
+  totalSheep() {
+    return this.ownedParcels().reduce((a, p) => a + Math.floor(p.sheep), 0);
+  }
+  // Healthy carrying capacity (head) for a parcel, by acreage.
+  parcelSheepCapacity(p) {
+    return Math.max(1, Math.round(p.acres / SHEEP.acresPerSheep));
+  }
+  // Land-optimal stocking ratio: panels and sheep both scale with acreage, so
+  // this is constant. panelsPerAcre × acresPerSheep = panels per sheep.
+  panelsPerSheep() {
+    return Math.round(this.config.panelsPerAcre * SHEEP.acresPerSheep);
+  }
+  // Grazing health 0..1 — drops when the flock exceeds carrying capacity.
+  parcelGrazingHealth(p) {
+    const cap = this.parcelSheepCapacity(p);
+    if (p.sheep <= cap) return 1;
+    return Math.max(0.3, cap / p.sheep);
+  }
+
+  // Production for one parcel in a month (kWh). Optional tiltOverride lets the
+  // UI preview a slider value without mutating state.
+  parcelMonthKwh(p, monthIdx, tiltOverride) {
     const psh = this.config.peakSunHours[monthIdx];
     const days = this.config.daysInMonth[monthIdx];
+    const tilt = tiltOverride == null ? p.tilt : tiltOverride;
+    return (
+      this.parcelYieldKw(p) *
+      psh *
+      days *
+      this.config.performanceRatio *
+      p.sunQuality *
+      this.tiltFactor(tilt, monthIdx)
+    );
+  }
+
+  // Full-year production for one parcel (kWh) at its current or an override tilt.
+  parcelAnnualKwh(p, tiltOverride) {
     let kwh = 0;
-    for (const p of this.ownedParcels()) {
-      let parcelKw = 0;
-      for (const [tid, n] of Object.entries(p.panels)) {
-        const t = this.panelType(tid);
-        if (t) parcelKw += (t.wattage * n) / 1000;
-      }
-      kwh += parcelKw * psh * days * this.config.performanceRatio * p.sunQuality;
+    for (let m = 0; m < 12; m++) kwh += this.parcelMonthKwh(p, m, tiltOverride);
+    return kwh;
+  }
+
+  // Annual energy from a single panel of type t on parcel p (for shop comparison).
+  panelSlotAnnualKwh(p, t) {
+    let kwh = 0;
+    const kw = (t.wattage * (t.yieldFactor || 1)) / 1000;
+    for (let m = 0; m < 12; m++) {
+      kwh +=
+        kw *
+        this.config.peakSunHours[m] *
+        this.config.daysInMonth[m] *
+        this.config.performanceRatio *
+        p.sunQuality *
+        this.tiltFactor(p.tilt, m);
     }
+    return kwh;
+  }
+
+  // Estimated production for a given month index (0-11) across all owned land.
+  estimateMonthKwh(monthIdx) {
+    let kwh = 0;
+    for (const p of this.ownedParcels()) kwh += this.parcelMonthKwh(p, monthIdx);
     return kwh;
   }
 
@@ -1268,6 +1406,24 @@ class Game {
     return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.id}.` };
   }
 
+  setTilt(parcelId, deg) {
+    const p = this.parcels.find((x) => x.id === parcelId);
+    if (!p || !p.owned) return { ok: false, msg: "Unavailable." };
+    p.tilt = Math.max(0, Math.min(60, Math.round(deg)));
+    return { ok: true, msg: `Set ${p.id} tilt to ${p.tilt}°.`, quiet: true };
+  }
+
+  addSheep(parcelId, count) {
+    const p = this.parcels.find((x) => x.id === parcelId);
+    if (!p || !p.owned) return { ok: false, msg: "Buy this plot first." };
+    const cost = count * SHEEP.cost;
+    if (this.cash < cost)
+      return { ok: false, msg: `Need ${money(cost)} for ${count} sheep.` };
+    this.cash -= cost;
+    p.sheep += count;
+    return { ok: true, msg: `Added ${count} sheep to ${p.id}.` };
+  }
+
   addBattery(parcelId, typeId, count) {
     const p = this.parcels.find((x) => x.id === parcelId);
     const b = this.batteryType(typeId);
@@ -1298,13 +1454,36 @@ class Game {
     }
 
     const revenue = kwh * sellFraction * this.config.sellPricePerKwh;
-    const upkeep = this.totalPanels() * this.config.maintenancePerPanelPerMonth;
+
+    // Per-parcel upkeep, sheep grazing savings, meat revenue, and flock growth.
+    let grossUpkeep = 0;
+    let grazeSavings = 0;
+    let meatRevenue = 0;
+    for (const p of this.ownedParcels()) {
+      const panelUpkeep =
+        this.parcelPanelCount(p) * this.config.maintenancePerPanelPerMonth;
+      grossUpkeep += panelUpkeep;
+      if (p.sheep >= 1) {
+        const cap = this.parcelSheepCapacity(p);
+        const coverage = Math.min(1, p.sheep / cap); // how much grass is grazed
+        const health = this.parcelGrazingHealth(p);
+        grazeSavings += panelUpkeep * SHEEP.upkeepReductionPerPanel * coverage;
+        meatRevenue +=
+          Math.floor(p.sheep) * SHEEP.meatRevenuePerSheepPerMonth * health;
+        // Flock breeds toward carrying capacity and holds there (no self-inflicted
+        // overgrazing). Overgrazing only happens if the player over-buys.
+        if (p.sheep < cap) {
+          p.sheep = Math.min(cap, p.sheep * (1 + SHEEP.monthlyGrowth * health));
+        }
+      }
+    }
+    const upkeep = Math.max(0, grossUpkeep - grazeSavings);
     const budget = this.config.monthlyBudget;
-    const net = revenue - upkeep + budget;
+    const net = revenue + meatRevenue - upkeep + budget;
 
     this.cash += net;
     this.lifetimeKwh += kwh;
-    this.lifetimeRevenue += revenue;
+    this.lifetimeRevenue += revenue + meatRevenue;
     this.lifetimeCo2Kg += kwh * this.config.co2KgPerKwh;
 
     const label = `${this.config.monthNames[m]} Y${this.year}`;
@@ -1314,6 +1493,7 @@ class Game {
     this.lastMonth = {
       label, kwh, revenue, upkeep, budget, net,
       sellFraction, storageKwh, capacityKw,
+      meatRevenue, grazeSavings, sheep: this.totalSheep(),
     };
 
     this.monthIndex++;
@@ -1555,12 +1735,15 @@ class UI {
     const panelShop = PANEL_TYPES.map((t) => {
       const locked = t.unlockLevel > g.level().level;
       const owned = p.panels[t.id] || 0;
+      const slotKwh = g.panelSlotAnnualKwh(p, t);
+      const costPerKwh = (t.cost / Math.max(1, slotKwh)).toFixed(2);
       return `
         <div class="shop-row ${locked ? "locked" : ""}">
           <span class="swatch" style="background:${t.color}"></span>
           <div class="shop-info">
             <b>${t.name}</b> <span class="muted">${money(t.cost)}/ea · ${owned} installed</span>
             <div class="muted small">${locked ? "Unlocks at L" + t.unlockLevel : t.blurb}</div>
+            <div class="muted small">${Math.round(slotKwh)} kWh/yr per panel · $${costPerKwh}/kWh·yr</div>
           </div>
           <div class="shop-actions">
             <button class="btn mini" data-panel="${t.id}" data-n="1" ${locked ? "disabled" : ""}>+1</button>
@@ -1585,17 +1768,55 @@ class UI {
         </div>`;
     }).join("");
 
+    const cap = g.parcelSheepCapacity(p);
+    const flock = Math.floor(p.sheep);
+    const over = p.sheep > cap;
+
     box.innerHTML = `
       <h3>${p.id} — Owned</h3>
       <div class="kv"><span>Capacity</span><b>${parcelKw.toFixed(1)} kW</b></div>
       <div class="kv"><span>Panels</span><b>${used} / ${p.maxPanels}</b></div>
       <div class="fill"><div class="fill-bar" style="width:${built * 100}%"></div></div>
       <div class="grid-viz">${this.gridViz(p)}</div>
+
+      <h4>Tilt angle</h4>
+      <div class="tilt-row">
+        <input type="range" id="tilt-slider" min="0" max="60" step="1" value="${p.tilt}" ${used ? "" : "disabled"} />
+        <span class="tilt-deg" id="tilt-deg">${p.tilt}°</span>
+      </div>
+      <div id="tilt-readout">${this.tiltReadoutHtml(p)}</div>
+
       <h4>Add panels</h4>
       ${panelShop}
+
+      <h4>Sheep <span class="muted small">(agrivoltaics)</span></h4>
+      <div class="kv"><span>Flock</span><b class="${over ? "neg" : ""}">${flock} / ${cap}${over ? " — overgrazed" : ""}</b></div>
+      <div class="kv"><span>Optimal flock</span><b>${cap} <span class="muted small">(1 sheep / ${g.panelsPerSheep()} panels)</span></b></div>
+      <div class="muted small">Graze the grass to cut upkeep; the flock breeds for monthly meat income. Past capacity, overgrazing cuts meat yield.</div>
+      <div class="shop-row">
+        <span class="swatch" style="background:${SHEEP.color}"></span>
+        <div class="shop-info">
+          <b>Sheep</b> <span class="muted">${money(SHEEP.cost)}/head</span>
+          <div class="muted small">~${money(flock * SHEEP.meatRevenuePerSheepPerMonth)}/mo meat at this flock</div>
+        </div>
+        <div class="shop-actions">
+          <button class="btn mini" data-sheep="1">+1</button>
+          <button class="btn mini" data-sheep="5">+5</button>
+        </div>
+      </div>
+
       <h4>Add storage</h4>
       ${batteryShop}`;
 
+    const slider = document.getElementById("tilt-slider");
+    if (slider) {
+      slider.oninput = () => {
+        g.setTilt(p.id, +slider.value);
+        document.getElementById("tilt-deg").textContent = p.tilt + "°";
+        document.getElementById("tilt-readout").innerHTML = this.tiltReadoutHtml(p);
+        this.renderStats();
+      };
+    }
     box.querySelectorAll("button[data-panel]").forEach((btn) => {
       btn.onclick = () =>
         this.act(g.addPanels(p.id, btn.dataset.panel, +btn.dataset.n));
@@ -1604,6 +1825,28 @@ class UI {
       btn.onclick = () =>
         this.act(g.addBattery(p.id, btn.dataset.batt, +btn.dataset.n));
     });
+    box.querySelectorAll("button[data-sheep]").forEach((btn) => {
+      btn.onclick = () => this.act(g.addSheep(p.id, +btn.dataset.sheep));
+    });
+  }
+
+  // Live tilt economics shown under the slider.
+  tiltReadoutHtml(p) {
+    const g = this.game;
+    const opt = g.optimalAnnualTilt();
+    const annual = g.parcelAnnualKwh(p);
+    const best = g.parcelAnnualKwh(p, opt);
+    const pct = best > 0 ? (annual / best) * 100 : 0;
+    const revenue = annual * 0.85 * g.config.sellPricePerKwh;
+    if (!g.parcelPanelCount(p)) {
+      return `<p class="muted small">Install panels to tune tilt. Optimal here: <b>${opt}°</b>.</p>`;
+    }
+    return `
+      <div class="kv"><span>Optimal tilt</span><b>${opt}°</b></div>
+      <div class="kv"><span>Annual output</span><b>${Math.round(annual).toLocaleString()} kWh</b></div>
+      <div class="kv"><span>Est. energy revenue</span><b>~${money(revenue)}/yr</b></div>
+      <div class="fill"><div class="fill-bar" style="width:${Math.min(100, pct)}%"></div></div>
+      <div class="muted small">${pct.toFixed(1)}% of this plot's optimal yield</div>`;
   }
 
   // A small visual grid of installed panels (capped cells for readability).
@@ -1648,9 +1891,12 @@ class UI {
       this.el.lastMonth.innerHTML = `<span class="muted">No months simulated yet. Press “Advance Month”.</span>`;
     } else {
       const m = g.lastMonth;
+      const meatLine = m.sheep
+        ? ` · meat ${money(m.meatRevenue)} <span class="muted small">(${m.sheep} sheep, grazing saved ${money(m.grazeSavings)})</span>`
+        : "";
       this.el.lastMonth.innerHTML = `
         <b>${m.label}</b> — produced <b>${Math.round(m.kwh).toLocaleString()} kWh</b><br>
-        revenue ${money(m.revenue)} · budget ${money(m.budget)} · upkeep -${money(m.upkeep)}
+        revenue ${money(m.revenue)}${meatLine} · budget ${money(m.budget)} · upkeep -${money(m.upkeep)}
         → net <b class="${m.net >= 0 ? "pos" : "neg"}">${money(m.net)}</b>
         <span class="muted small"> (sold ${(m.sellFraction * 100).toFixed(0)}% of output)</span>`;
     }
