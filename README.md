@@ -43,8 +43,8 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-(An internet connection is needed for the Leaflet map tiles and library, loaded
-from a CDN / OpenStreetMap.)
+Leaflet is vendored locally under `vendor/leaflet/`, so the only thing that
+needs an internet connection is the map tiles (served by OpenStreetMap).
 
 ## Change the zip code
 
