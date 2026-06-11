@@ -974,11 +974,12 @@ body { display: flex; flex-direction: column; height: 100vh; }
 const CONFIG = {
   zip: "33763",
   cityName: "Clearwater, FL",
-  // Map center for zip 33763 (Clearwater, Florida).
-  center: { lat: 27.9756, lng: -82.729 },
+  // Map center for zip 33763 (Clearwater, Florida) — the real "On Top of the
+  // World" community, where the parcel addresses in docs/buildings.csv live.
+  center: { lat: 27.9992, lng: -82.7395 },
   zoom: 16,
   // Site latitude drives the optimal panel tilt (≈ latitude for max annual yield).
-  latitude: 27.98,
+  latitude: 28.0,
 
   startingCash: 35000,
   // Monthly investment allowance ("budget") injected each month, on top of energy revenue.
