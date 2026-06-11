@@ -22,8 +22,72 @@ function seedFromString(str) {
   return h >>> 0;
 }
 
-// Generate a grid of land parcels around the zip center.
+// Build parcels from real building plots (BUILDING_PLOTS) when available for
+// this zip, otherwise fall back to the synthetic grid. Real plots are placed at
+// their actual lat/lng and sized from each building's unit count.
 function generateParcels(config) {
+  if (
+    typeof BUILDING_PLOTS !== "undefined" &&
+    BUILDING_PLOTS.length > 0 &&
+    config.useRealPlots
+  ) {
+    return generateRealParcels(config);
+  }
+  return generateGridParcels(config);
+}
+
+// Turn the real On Top of the World buildings into game parcels. Each building's
+// footprint is approximated by a small rectangle centered on its address; size,
+// panel capacity, and price scale with the building's unit count. Sun quality
+// and price jitter are deterministic (seeded per building name) so a given zip
+// always produces the same world.
+function generateRealParcels(config) {
+  const parcels = [];
+  BUILDING_PLOTS.forEach((b, id) => {
+    const rng = makeRng(seedFromString(config.zip + "|" + b.name));
+    // Bigger buildings (more units) get more roof area.
+    const acres = +(0.18 + b.units * 0.012).toFixed(2);
+    const sunQuality = +(0.85 + rng() * 0.25).toFixed(3);
+    const maxPanels = Math.round(acres * config.panelsPerAcre);
+    const price =
+      Math.round(
+        (6000 + acres * 22000 + (sunQuality - 0.85) * 40000) / 500
+      ) * 500;
+
+    // Approximate footprint: a square whose side grows with building size.
+    const sideM = Math.max(20, Math.min(55, 16 + b.units * 0.5));
+    const halfLat = sideM / 2 / 111320;
+    const halfLng =
+      sideM / 2 / (111320 * Math.cos((b.lat * Math.PI) / 180));
+    const bounds = [
+      [b.lat - halfLat, b.lng - halfLng],
+      [b.lat + halfLat, b.lng + halfLng],
+    ];
+
+    parcels.push({
+      id: "P" + id,
+      index: id,
+      name: b.name,
+      units: b.units,
+      bounds,
+      center: [b.lat, b.lng],
+      acres,
+      sunQuality,
+      maxPanels,
+      price,
+      owned: false,
+      tilt: Math.round(config.latitude),
+      sheep: 0,
+      panels: {},
+      batteries: {},
+    });
+  });
+  return parcels;
+}
+
+// Generate a synthetic grid of land parcels around the zip center (fallback for
+// zips without real plot data).
+function generateGridParcels(config) {
   const rng = makeRng(seedFromString(config.zip));
   const parcels = [];
   const cols = 6;
