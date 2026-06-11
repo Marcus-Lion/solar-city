@@ -980,7 +980,18 @@ const CONFIG = {
   zoom: 16,
   // Use real building plots from BUILDING_PLOTS (county GIS) instead of the
   // synthetic grid. Set false to fall back to generated parcels for other zips.
+  // Ignored when liveParcels.enabled (the live loader supersedes it).
   useRealPlots: true,
+  // Stream every real parcel in the City of Clearwater on demand from Pinellas
+  // County GIS as you pan/zoom, instead of a fixed plot set. CORS-enabled, so it
+  // works straight from the browser. Requires network; disable for offline use.
+  liveParcels: {
+    enabled: true,
+    url: "https://egis.pinellas.gov/gis/rest/services/PublicWebGIS/Parcels/MapServer/1/query",
+    where: "SITE_CITY='CLEARWATER'",
+    minZoom: 16, // below this the area holds too many parcels to load
+    maxPerView: 1000, // server cap per request; zoom in to see more
+  },
   // Site latitude drives the optimal panel tilt (≈ latitude for max annual yield).
   latitude: 28.0,
 
@@ -1456,6 +1467,10 @@ function seedFromString(str) {
 // this zip, otherwise fall back to the synthetic grid. Real plots are placed at
 // their actual lat/lng and sized from each building's unit count.
 function generateParcels(config) {
+  // Live mode starts empty; the map streams real parcels for the viewport.
+  if (config.liveParcels && config.liveParcels.enabled) {
+    return [];
+  }
   if (
     typeof BUILDING_PLOTS !== "undefined" &&
     BUILDING_PLOTS.length > 0 &&
@@ -1464,6 +1479,63 @@ function generateParcels(config) {
     return generateRealParcels(config);
   }
   return generateGridParcels(config);
+}
+
+// Title-case a county SITE_ADDRESS like "2257 WORLD PARKWAY BLVD W".
+function titleCaseAddress(s) {
+  return s
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
+}
+
+// Convert an Esri parcel feature (geometry in WGS84 rings of [lng, lat]) into a
+// game parcel. Attributes (acreage, address) come from the county; sun quality
+// and price jitter are seeded from the parcel id so the world is deterministic.
+function parcelFromFeature(feature, config) {
+  const a = feature.attributes || {};
+  const id = String(a.PARCELID || a.OBJECTID);
+  const ring = feature.geometry && feature.geometry.rings && feature.geometry.rings[0];
+  if (!ring || ring.length < 3) return null;
+
+  let sumLat = 0;
+  let sumLng = 0;
+  const polygon = ring.map(([lng, lat]) => {
+    sumLat += lat;
+    sumLng += lng;
+    return [lat, lng];
+  });
+  const center = [sumLat / ring.length, sumLng / ring.length];
+
+  const acres = +(a.Acres && a.Acres > 0 ? a.Acres : 0.2).toFixed(2);
+  const rng = makeRng(seedFromString(config.zip + "|" + id));
+  const sunQuality = +(0.85 + rng() * 0.25).toFixed(3);
+  // Cap panel capacity so a huge land parcel doesn't dominate the game.
+  const maxPanels = Math.min(
+    2000,
+    Math.max(4, Math.round(acres * config.panelsPerAcre))
+  );
+  const price =
+    Math.round(
+      (6000 + acres * 22000 + (sunQuality - 0.85) * 40000) / 500
+    ) * 500;
+
+  const addr = (a.SITE_ADDRESS || "").trim();
+  return {
+    id,
+    name: addr ? titleCaseAddress(addr) : "Parcel " + id,
+    polygon,
+    center,
+    acres,
+    sunQuality,
+    maxPanels,
+    price,
+    owned: false,
+    tilt: Math.round(config.latitude),
+    sheep: 0,
+    panels: {},
+    batteries: {},
+  };
 }
 
 // Turn the real On Top of the World buildings into game parcels. Each building's
@@ -1613,6 +1685,25 @@ class Game {
     this.history = []; // [{label, kwh, revenue, net}]
     this.lastMonth = null; // summary of most recent advance
     this.selectedParcelId = null;
+    // Track parcel ids already loaded (used by the live viewport loader).
+    this.parcelIds = new Set(this.parcels.map((p) => p.id));
+  }
+
+  // Ingest county GIS parcel features, skipping any already loaded. Returns the
+  // parcels that were newly added so the map can render just those.
+  addParcelsFromFeatures(features) {
+    const added = [];
+    for (const f of features) {
+      const a = f.attributes || {};
+      const id = String(a.PARCELID || a.OBJECTID);
+      if (!id || this.parcelIds.has(id)) continue;
+      const parcel = parcelFromFeature(f, this.config);
+      if (!parcel) continue;
+      this.parcelIds.add(parcel.id);
+      this.parcels.push(parcel);
+      added.push(parcel);
+    }
+    return added;
   }
 
   // ---- derived helpers ----
@@ -1943,10 +2034,15 @@ function money(n) {
 /* SolarCity — Leaflet map layer. Renders land parcels and reflects state. */
 
 class GameMap {
-  constructor(game, onSelect) {
+  constructor(game, onSelect, onUpdate) {
     this.game = game;
     this.onSelect = onSelect;
-    this.layers = {}; // parcelId -> L.rectangle
+    this.onUpdate = onUpdate || (() => {});
+    this.layers = {}; // parcelId -> L.rectangle | L.polygon
+    this.live = game.config.liveParcels && game.config.liveParcels.enabled
+      ? game.config.liveParcels
+      : null;
+    this.loading = false;
 
     this.map = L.map("map", {
       zoomControl: true,
@@ -1970,23 +2066,105 @@ class GameMap {
       .bindTooltip(`Zip ${game.config.zip} center`, { direction: "top" });
 
     this.renderParcels();
+
+    if (this.live) {
+      this.status = this.addStatusControl();
+      this.map.on("moveend", () => this.loadViewport());
+      this.loadViewport();
+    }
+  }
+
+  addParcelLayer(p) {
+    const shape = p.polygon
+      ? L.polygon(p.polygon, this.styleFor(p))
+      : L.rectangle(p.bounds, this.styleFor(p));
+    shape.addTo(this.map).on("click", () => this.onSelect(p.id));
+    shape.bindTooltip(this.tooltipFor(p), { sticky: true });
+    this.layers[p.id] = shape;
+    return shape;
   }
 
   renderParcels() {
     const group = [];
     for (const p of this.game.parcels) {
-      const rect = L.rectangle(p.bounds, this.styleFor(p))
-        .addTo(this.map)
-        .on("click", () => this.onSelect(p.id));
-      rect.bindTooltip(this.tooltipFor(p), { sticky: true });
-      this.layers[p.id] = rect;
-      group.push(rect);
+      group.push(this.addParcelLayer(p));
     }
-    // Frame all plots so the whole community is visible regardless of count.
-    if (group.length > 1) {
+    // For a fixed plot set, frame them all. In live mode we keep the viewport.
+    if (!this.live && group.length > 1) {
       const bounds = L.featureGroup(group).getBounds();
       this.map.fitBounds(bounds, { padding: [24, 24] });
     }
+  }
+
+  addStatusControl() {
+    const ctrl = L.control({ position: "topright" });
+    ctrl.onAdd = () => {
+      const div = L.DomUtil.create("div", "plot-status");
+      div.style.cssText =
+        "background:rgba(15,23,42,.85);color:#e2e8f0;padding:4px 8px;" +
+        "border-radius:6px;font:12px/1.4 system-ui,sans-serif;max-width:220px;";
+      div.textContent = "Loading plots\u2026";
+      return div;
+    };
+    ctrl.addTo(this.map);
+    return ctrl;
+  }
+
+  setStatus(text) {
+    if (this.status && this.status.getContainer())
+      this.status.getContainer().textContent = text;
+  }
+
+  // Fetch every Clearwater parcel intersecting the current viewport and add any
+  // not already loaded. Skipped when zoomed too far out (too many parcels).
+  loadViewport() {
+    if (!this.live || this.loading) return;
+    if (this.map.getZoom() < this.live.minZoom) {
+      this.setStatus(
+        `Zoom in to load plots (${this.game.parcels.length} loaded)`
+      );
+      return;
+    }
+    const b = this.map.getBounds();
+    const envelope = {
+      xmin: b.getWest(),
+      ymin: b.getSouth(),
+      xmax: b.getEast(),
+      ymax: b.getNorth(),
+      spatialReference: { wkid: 4326 },
+    };
+    const params = new URLSearchParams({
+      where: this.live.where,
+      geometry: JSON.stringify(envelope),
+      geometryType: "esriGeometryEnvelope",
+      inSR: "4326",
+      outSR: "4326",
+      spatialRel: "esriSpatialRelIntersects",
+      outFields: "PARCELID,SITE_ADDRESS,Acres",
+      returnGeometry: "true",
+      geometryPrecision: "6",
+      resultRecordCount: String(this.live.maxPerView),
+      f: "json",
+    });
+    this.loading = true;
+    this.setStatus("Loading plots\u2026");
+    fetch(this.live.url + "?" + params.toString())
+      .then((r) => r.json())
+      .then((data) => {
+        const features = (data && data.features) || [];
+        const added = this.game.addParcelsFromFeatures(features);
+        for (const p of added) this.addParcelLayer(p);
+        const capped = features.length >= this.live.maxPerView;
+        this.setStatus(
+          `${this.game.parcels.length} plots loaded` +
+            (capped ? " \u2014 zoom in for more" : "")
+        );
+        if (added.length) this.onUpdate();
+      })
+      .catch(() => this.setStatus("Could not load plots (offline?)"))
+      .finally(() => {
+        this.loading = false;
+      });
   }
 
   styleFor(p) {
@@ -2379,7 +2557,11 @@ window.addEventListener("DOMContentLoaded", () => {
     `${CONFIG.cityName} · ${CONFIG.zip}`;
 
   let ui;
-  const gameMap = new GameMap(game, (parcelId) => ui.selectParcel(parcelId));
+  const gameMap = new GameMap(
+    game,
+    (parcelId) => ui.selectParcel(parcelId),
+    () => ui && ui.renderGoals()
+  );
   ui = new UI(game, gameMap);
 
   // Expose for debugging in the console.

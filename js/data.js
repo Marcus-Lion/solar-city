@@ -11,7 +11,18 @@ const CONFIG = {
   zoom: 16,
   // Use real building plots from BUILDING_PLOTS (county GIS) instead of the
   // synthetic grid. Set false to fall back to generated parcels for other zips.
+  // Ignored when liveParcels.enabled (the live loader supersedes it).
   useRealPlots: true,
+  // Stream every real parcel in the City of Clearwater on demand from Pinellas
+  // County GIS as you pan/zoom, instead of a fixed plot set. CORS-enabled, so it
+  // works straight from the browser. Requires network; disable for offline use.
+  liveParcels: {
+    enabled: true,
+    url: "https://egis.pinellas.gov/gis/rest/services/PublicWebGIS/Parcels/MapServer/1/query",
+    where: "SITE_CITY='CLEARWATER'",
+    minZoom: 16, // below this the area holds too many parcels to load
+    maxPerView: 1000, // server cap per request; zoom in to see more
+  },
   // Site latitude drives the optimal panel tilt (≈ latitude for max annual yield).
   latitude: 28.0,
 

@@ -26,6 +26,10 @@ function seedFromString(str) {
 // this zip, otherwise fall back to the synthetic grid. Real plots are placed at
 // their actual lat/lng and sized from each building's unit count.
 function generateParcels(config) {
+  // Live mode starts empty; the map streams real parcels for the viewport.
+  if (config.liveParcels && config.liveParcels.enabled) {
+    return [];
+  }
   if (
     typeof BUILDING_PLOTS !== "undefined" &&
     BUILDING_PLOTS.length > 0 &&
@@ -34,6 +38,63 @@ function generateParcels(config) {
     return generateRealParcels(config);
   }
   return generateGridParcels(config);
+}
+
+// Title-case a county SITE_ADDRESS like "2257 WORLD PARKWAY BLVD W".
+function titleCaseAddress(s) {
+  return s
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .replace(/\b(N|S|E|W|Ne|Nw|Se|Sw)\b/g, (m) => m.toUpperCase());
+}
+
+// Convert an Esri parcel feature (geometry in WGS84 rings of [lng, lat]) into a
+// game parcel. Attributes (acreage, address) come from the county; sun quality
+// and price jitter are seeded from the parcel id so the world is deterministic.
+function parcelFromFeature(feature, config) {
+  const a = feature.attributes || {};
+  const id = String(a.PARCELID || a.OBJECTID);
+  const ring = feature.geometry && feature.geometry.rings && feature.geometry.rings[0];
+  if (!ring || ring.length < 3) return null;
+
+  let sumLat = 0;
+  let sumLng = 0;
+  const polygon = ring.map(([lng, lat]) => {
+    sumLat += lat;
+    sumLng += lng;
+    return [lat, lng];
+  });
+  const center = [sumLat / ring.length, sumLng / ring.length];
+
+  const acres = +(a.Acres && a.Acres > 0 ? a.Acres : 0.2).toFixed(2);
+  const rng = makeRng(seedFromString(config.zip + "|" + id));
+  const sunQuality = +(0.85 + rng() * 0.25).toFixed(3);
+  // Cap panel capacity so a huge land parcel doesn't dominate the game.
+  const maxPanels = Math.min(
+    2000,
+    Math.max(4, Math.round(acres * config.panelsPerAcre))
+  );
+  const price =
+    Math.round(
+      (6000 + acres * 22000 + (sunQuality - 0.85) * 40000) / 500
+    ) * 500;
+
+  const addr = (a.SITE_ADDRESS || "").trim();
+  return {
+    id,
+    name: addr ? titleCaseAddress(addr) : "Parcel " + id,
+    polygon,
+    center,
+    acres,
+    sunQuality,
+    maxPanels,
+    price,
+    owned: false,
+    tilt: Math.round(config.latitude),
+    sheep: 0,
+    panels: {},
+    batteries: {},
+  };
 }
 
 // Turn the real On Top of the World buildings into game parcels. Each building's
@@ -183,6 +244,25 @@ class Game {
     this.history = []; // [{label, kwh, revenue, net}]
     this.lastMonth = null; // summary of most recent advance
     this.selectedParcelId = null;
+    // Track parcel ids already loaded (used by the live viewport loader).
+    this.parcelIds = new Set(this.parcels.map((p) => p.id));
+  }
+
+  // Ingest county GIS parcel features, skipping any already loaded. Returns the
+  // parcels that were newly added so the map can render just those.
+  addParcelsFromFeatures(features) {
+    const added = [];
+    for (const f of features) {
+      const a = f.attributes || {};
+      const id = String(a.PARCELID || a.OBJECTID);
+      if (!id || this.parcelIds.has(id)) continue;
+      const parcel = parcelFromFeature(f, this.config);
+      if (!parcel) continue;
+      this.parcelIds.add(parcel.id);
+      this.parcels.push(parcel);
+      added.push(parcel);
+    }
+    return added;
   }
 
   // ---- derived helpers ----
