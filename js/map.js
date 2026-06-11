@@ -31,12 +31,19 @@ class GameMap {
   }
 
   renderParcels() {
+    const group = [];
     for (const p of this.game.parcels) {
       const rect = L.rectangle(p.bounds, this.styleFor(p))
         .addTo(this.map)
         .on("click", () => this.onSelect(p.id));
       rect.bindTooltip(this.tooltipFor(p), { sticky: true });
       this.layers[p.id] = rect;
+      group.push(rect);
+    }
+    // Frame all plots so the whole community is visible regardless of count.
+    if (group.length > 1) {
+      const bounds = L.featureGroup(group).getBounds();
+      this.map.fitBounds(bounds, { padding: [24, 24] });
     }
   }
 

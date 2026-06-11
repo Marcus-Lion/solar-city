@@ -69,21 +69,27 @@ python3 -m http.server 8000
 Leaflet is vendored locally under `vendor/leaflet/`, so the only thing that
 needs an internet connection is the map tiles (served by OpenStreetMap).
 
-## Building names
+## Real building plots
 
-Each parcel is labeled with a real street address (e.g. *2222 Americus*)
-instead of a generic `P0`/`P1` id. The address pool lives in
-`BUILDING_NAMES` in `js/data.js`, sourced from county parcel data in
-`docs/buildings.csv`. Names are assigned with a seeded shuffle, so they are
-varied yet deterministic for a given zip. The internal `P#` id is still shown
-as a subtitle in the inspector. To refresh the pool from the CSV, regenerate
-`BUILDING_NAMES` from the `DESCRIPTION` column of `docs/buildings.csv`.
+With `CONFIG.useRealPlots = true`, the plots are the **real buildings** of the
+On Top of the World community in Clearwater, FL (zip 33763) rather than a
+synthetic grid. `BUILDING_PLOTS` in `js/data.js` holds one entry per building —
+`{ name, lat, lng, units }` — where `name` is the street address, `lat/lng` is
+the building location, and `units` is the apartment-unit count (a proxy for
+building size that drives acreage, panel capacity, and price). The data comes
+from [Pinellas County GIS](https://egis.pinellas.gov) address points matched to
+`docs/buildings.csv`. The map auto-fits to show every plot.
+
+Set `CONFIG.useRealPlots = false` to fall back to the deterministic synthetic
+grid (which labels parcels from the `BUILDING_NAMES` address pool) for zips
+without real plot data.
 
 ## Change the zip code
 
 Edit `js/data.js` and update `CONFIG.zip`, `CONFIG.cityName`, and
-`CONFIG.center` (lat/lng). Land plots are generated deterministically from the
-zip, and `CONFIG.peakSunHours` can be tuned for the local climate.
+`CONFIG.center` (lat/lng). With `useRealPlots = false`, land plots are generated
+deterministically from the zip, and `CONFIG.peakSunHours` can be tuned for the
+local climate.
 
 ## Project structure
 

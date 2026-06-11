@@ -94,7 +94,7 @@ class UI {
     if (!p.owned) {
       box.innerHTML = `
         <h3>${p.name} — For Sale</h3>
-        <div class="muted small">Parcel ${p.id}</div>
+        <div class="muted small">Parcel ${p.id}${p.units ? ` · ${p.units} units` : ""}</div>
         <div class="kv"><span>Size</span><b>${p.acres} acres</b></div>
         <div class="kv"><span>Sun quality</span><b>${(p.sunQuality * 100).toFixed(0)}%</b></div>
         <div class="kv"><span>Panel capacity</span><b>${p.maxPanels} panels</b></div>
