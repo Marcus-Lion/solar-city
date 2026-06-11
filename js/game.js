@@ -52,7 +52,7 @@ function generateParcels(config) {
       // Sun quality 0.85 - 1.10 (shading, orientation).
       const sunQuality = +(0.85 + rng() * 0.25).toFixed(3);
       // Max panels scales with area (~one 400W panel per ~2.5 m^2 usable).
-      const maxPanels = Math.round(acres * 320);
+      const maxPanels = Math.round(acres * config.panelsPerAcre);
       // Price scales with area and sun quality.
       const price = Math.round(
         (6000 + acres * 22000 + (sunQuality - 0.85) * 40000) / 500
@@ -68,6 +68,9 @@ function generateParcels(config) {
         maxPanels,
         price,
         owned: false,
+        // Mounting tilt in degrees; defaults to the latitude-optimal annual tilt.
+        tilt: Math.round(config.latitude),
+        sheep: 0,
         // installed gear: { panelTypeId: count }, batteries: { batteryTypeId: count }
         panels: {},
         batteries: {},
@@ -113,19 +116,67 @@ class Game {
     return this.parcelPanelCount(p);
   }
 
+  // ---- tilt physics ----
+  // Solar declination (deg) for a representative day in each month.
+  solarDeclination(monthIdx) {
+    const dayOfYear = [15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349][monthIdx];
+    return 23.45 * Math.sin((2 * Math.PI / 365) * (dayOfYear - 81));
+  }
+  // Tilt (deg) that maximizes irradiance at solar noon for a given month.
+  optimalTilt(monthIdx) {
+    return this.config.latitude - this.solarDeclination(monthIdx);
+  }
+  // Single fixed tilt that best serves the whole year (sun-weighted).
+  optimalAnnualTilt() {
+    if (this._optTilt != null) return this._optTilt;
+    let best = 0, bestScore = -1;
+    for (let t = 0; t <= 60; t++) {
+      let s = 0;
+      for (let m = 0; m < 12; m++) {
+        s += this.config.peakSunHours[m] * this.config.daysInMonth[m] * this.tiltFactor(t, m);
+      }
+      if (s > bestScore) { bestScore = s; best = t; }
+    }
+    this._optTilt = best;
+    return best;
+  }
+  // Relative output (0..1) of a tilt vs. that month's optimum. A floor models
+  // diffuse/ground-reflected light that reaches even a poorly aimed panel.
+  tiltFactor(tilt, monthIdx) {
+    const diff = ((tilt - this.optimalTilt(monthIdx)) * Math.PI) / 180;
+    const beam = Math.cos(diff);
+    return 0.18 + 0.82 * Math.max(0, beam);
+  }
+
   totalPanels() {
     return this.ownedParcels().reduce((a, p) => a + this.parcelPanelCount(p), 0);
   }
 
-  totalCapacityKw() {
+  // Nameplate DC capacity of one parcel (kW) — used for levels & display.
+  parcelCapacityKw(p) {
     let w = 0;
-    for (const p of this.ownedParcels()) {
-      for (const [tid, n] of Object.entries(p.panels)) {
-        const t = this.panelType(tid);
-        if (t) w += t.wattage * n;
-      }
+    for (const [tid, n] of Object.entries(p.panels)) {
+      const t = this.panelType(tid);
+      if (t) w += t.wattage * n;
     }
     return w / 1000;
+  }
+
+  // Yield-weighted capacity (kW) — folds each panel type's yieldFactor in, so
+  // higher tiers produce more energy per slot of limited land.
+  parcelYieldKw(p) {
+    let w = 0;
+    for (const [tid, n] of Object.entries(p.panels)) {
+      const t = this.panelType(tid);
+      if (t) w += t.wattage * n * (t.yieldFactor || 1);
+    }
+    return w / 1000;
+  }
+
+  totalCapacityKw() {
+    let kw = 0;
+    for (const p of this.ownedParcels()) kw += this.parcelCapacityKw(p);
+    return kw;
   }
 
   totalBatteryKwh() {
@@ -151,19 +202,69 @@ class Game {
     return LEVELS.find((l) => l.capacityKw > cap) || null;
   }
 
-  // Estimated production for a given month index (0-11) across all owned land.
-  estimateMonthKwh(monthIdx) {
+  // ---- sheep / agrivoltaics ----
+  totalSheep() {
+    return this.ownedParcels().reduce((a, p) => a + Math.floor(p.sheep), 0);
+  }
+  // Healthy carrying capacity (head) for a parcel, by acreage.
+  parcelSheepCapacity(p) {
+    return Math.max(1, Math.round(p.acres / SHEEP.acresPerSheep));
+  }
+  // Land-optimal stocking ratio: panels and sheep both scale with acreage, so
+  // this is constant. panelsPerAcre × acresPerSheep = panels per sheep.
+  panelsPerSheep() {
+    return Math.round(this.config.panelsPerAcre * SHEEP.acresPerSheep);
+  }
+  // Grazing health 0..1 — drops when the flock exceeds carrying capacity.
+  parcelGrazingHealth(p) {
+    const cap = this.parcelSheepCapacity(p);
+    if (p.sheep <= cap) return 1;
+    return Math.max(0.3, cap / p.sheep);
+  }
+
+  // Production for one parcel in a month (kWh). Optional tiltOverride lets the
+  // UI preview a slider value without mutating state.
+  parcelMonthKwh(p, monthIdx, tiltOverride) {
     const psh = this.config.peakSunHours[monthIdx];
     const days = this.config.daysInMonth[monthIdx];
+    const tilt = tiltOverride == null ? p.tilt : tiltOverride;
+    return (
+      this.parcelYieldKw(p) *
+      psh *
+      days *
+      this.config.performanceRatio *
+      p.sunQuality *
+      this.tiltFactor(tilt, monthIdx)
+    );
+  }
+
+  // Full-year production for one parcel (kWh) at its current or an override tilt.
+  parcelAnnualKwh(p, tiltOverride) {
     let kwh = 0;
-    for (const p of this.ownedParcels()) {
-      let parcelKw = 0;
-      for (const [tid, n] of Object.entries(p.panels)) {
-        const t = this.panelType(tid);
-        if (t) parcelKw += (t.wattage * n) / 1000;
-      }
-      kwh += parcelKw * psh * days * this.config.performanceRatio * p.sunQuality;
+    for (let m = 0; m < 12; m++) kwh += this.parcelMonthKwh(p, m, tiltOverride);
+    return kwh;
+  }
+
+  // Annual energy from a single panel of type t on parcel p (for shop comparison).
+  panelSlotAnnualKwh(p, t) {
+    let kwh = 0;
+    const kw = (t.wattage * (t.yieldFactor || 1)) / 1000;
+    for (let m = 0; m < 12; m++) {
+      kwh +=
+        kw *
+        this.config.peakSunHours[m] *
+        this.config.daysInMonth[m] *
+        this.config.performanceRatio *
+        p.sunQuality *
+        this.tiltFactor(p.tilt, m);
     }
+    return kwh;
+  }
+
+  // Estimated production for a given month index (0-11) across all owned land.
+  estimateMonthKwh(monthIdx) {
+    let kwh = 0;
+    for (const p of this.ownedParcels()) kwh += this.parcelMonthKwh(p, monthIdx);
     return kwh;
   }
 
@@ -200,6 +301,24 @@ class Game {
     return { ok: true, msg: `Installed ${n} × ${t.name} on ${p.id}.` };
   }
 
+  setTilt(parcelId, deg) {
+    const p = this.parcels.find((x) => x.id === parcelId);
+    if (!p || !p.owned) return { ok: false, msg: "Unavailable." };
+    p.tilt = Math.max(0, Math.min(60, Math.round(deg)));
+    return { ok: true, msg: `Set ${p.id} tilt to ${p.tilt}°.`, quiet: true };
+  }
+
+  addSheep(parcelId, count) {
+    const p = this.parcels.find((x) => x.id === parcelId);
+    if (!p || !p.owned) return { ok: false, msg: "Buy this plot first." };
+    const cost = count * SHEEP.cost;
+    if (this.cash < cost)
+      return { ok: false, msg: `Need ${money(cost)} for ${count} sheep.` };
+    this.cash -= cost;
+    p.sheep += count;
+    return { ok: true, msg: `Added ${count} sheep to ${p.id}.` };
+  }
+
   addBattery(parcelId, typeId, count) {
     const p = this.parcels.find((x) => x.id === parcelId);
     const b = this.batteryType(typeId);
@@ -230,13 +349,36 @@ class Game {
     }
 
     const revenue = kwh * sellFraction * this.config.sellPricePerKwh;
-    const upkeep = this.totalPanels() * this.config.maintenancePerPanelPerMonth;
+
+    // Per-parcel upkeep, sheep grazing savings, meat revenue, and flock growth.
+    let grossUpkeep = 0;
+    let grazeSavings = 0;
+    let meatRevenue = 0;
+    for (const p of this.ownedParcels()) {
+      const panelUpkeep =
+        this.parcelPanelCount(p) * this.config.maintenancePerPanelPerMonth;
+      grossUpkeep += panelUpkeep;
+      if (p.sheep >= 1) {
+        const cap = this.parcelSheepCapacity(p);
+        const coverage = Math.min(1, p.sheep / cap); // how much grass is grazed
+        const health = this.parcelGrazingHealth(p);
+        grazeSavings += panelUpkeep * SHEEP.upkeepReductionPerPanel * coverage;
+        meatRevenue +=
+          Math.floor(p.sheep) * SHEEP.meatRevenuePerSheepPerMonth * health;
+        // Flock breeds toward carrying capacity and holds there (no self-inflicted
+        // overgrazing). Overgrazing only happens if the player over-buys.
+        if (p.sheep < cap) {
+          p.sheep = Math.min(cap, p.sheep * (1 + SHEEP.monthlyGrowth * health));
+        }
+      }
+    }
+    const upkeep = Math.max(0, grossUpkeep - grazeSavings);
     const budget = this.config.monthlyBudget;
-    const net = revenue - upkeep + budget;
+    const net = revenue + meatRevenue - upkeep + budget;
 
     this.cash += net;
     this.lifetimeKwh += kwh;
-    this.lifetimeRevenue += revenue;
+    this.lifetimeRevenue += revenue + meatRevenue;
     this.lifetimeCo2Kg += kwh * this.config.co2KgPerKwh;
 
     const label = `${this.config.monthNames[m]} Y${this.year}`;
@@ -246,6 +388,7 @@ class Game {
     this.lastMonth = {
       label, kwh, revenue, upkeep, budget, net,
       sellFraction, storageKwh, capacityKw,
+      meatRevenue, grazeSavings, sheep: this.totalSheep(),
     };
 
     this.monthIndex++;
