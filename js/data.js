@@ -8,6 +8,8 @@ const CONFIG = {
   // Map center for zip 33763 (Clearwater, Florida).
   center: { lat: 27.9756, lng: -82.729 },
   zoom: 16,
+  // Site latitude drives the optimal panel tilt (≈ latitude for max annual yield).
+  latitude: 27.98,
 
   startingCash: 35000,
   // Monthly investment allowance ("budget") injected each month, on top of energy revenue.
@@ -19,6 +21,7 @@ const CONFIG = {
   co2KgPerKwh: 0.42, // grid carbon intensity offset per kWh produced
 
   performanceRatio: 0.8, // system losses (inverter, wiring, soiling, temp)
+  panelsPerAcre: 320, // usable panel density (~one 400W panel per ~2.5 m²)
 
   // Average daily peak-sun-hours by month for the Tampa Bay / Clearwater area.
   // Index 0 = January ... 11 = December.
@@ -38,6 +41,7 @@ const PANEL_TYPES = [
     name: "Standard 400W",
     wattage: 400,
     cost: 250,
+    yieldFactor: 1.0, // baseline energy per nameplate watt
     unlockLevel: 1,
     color: "#3b82f6",
     blurb: "Reliable monocrystalline workhorse.",
@@ -47,6 +51,7 @@ const PANEL_TYPES = [
     name: "Premium 450W",
     wattage: 450,
     cost: 360,
+    yieldFactor: 1.08, // better low-light & temperature behavior
     unlockLevel: 2,
     color: "#22c55e",
     blurb: "Higher efficiency, better low-light yield.",
@@ -56,6 +61,7 @@ const PANEL_TYPES = [
     name: "Bifacial 500W",
     wattage: 500,
     cost: 520,
+    yieldFactor: 1.18, // rear-side gain from reflected light
     unlockLevel: 3,
     color: "#a855f7",
     blurb: "Captures reflected light from both sides.",
@@ -84,6 +90,19 @@ const BATTERY_TYPES = [
   },
 ];
 
+// Sheep (agrivoltaics): graze the grass under the panels, cutting maintenance,
+// and grow the flock for monthly meat revenue.
+const SHEEP = {
+  cost: 220, // $ to buy one ewe
+  acresPerSheep: 0.2, // carrying capacity: ~5 sheep/acre under rotational grazing
+  monthlyGrowth: 0.05, // flock breeding rate per month (compounding)
+  meatRevenuePerSheepPerMonth: 9, // $/sheep/month from meat & wool
+  // Grazing offsets vegetation maintenance: a fully-stocked parcel removes this
+  // fraction of its panels' upkeep (less mowing/landscaping).
+  upkeepReductionPerPanel: 0.6,
+  color: "#e2e8f0",
+};
+
 // Level thresholds keyed on total installed capacity in kW (DC).
 // Reaching a level unlocks new gear and raises your prestige.
 const LEVELS = [
@@ -110,4 +129,8 @@ const GOALS = [
     test: (g) => g.lifetimeKwh >= 10000 },
   { id: "land_baron", name: "Own 5 plots of land", reward: 8000,
     test: (g) => g.ownedParcels().length >= 5 },
+  { id: "well_tuned", name: "Tune a parcel within 2\u00b0 of optimal tilt", reward: 2500,
+    test: (g) => g.ownedParcels().some((p) => g.parcelPanelCount(p) > 0 && Math.abs(p.tilt - g.optimalAnnualTilt()) <= 2) },
+  { id: "shepherd", name: "Raise a flock of 25 sheep", reward: 3000,
+    test: (g) => g.totalSheep() >= 25 },
 ];

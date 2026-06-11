@@ -117,12 +117,15 @@ class UI {
     const panelShop = PANEL_TYPES.map((t) => {
       const locked = t.unlockLevel > g.level().level;
       const owned = p.panels[t.id] || 0;
+      const slotKwh = g.panelSlotAnnualKwh(p, t);
+      const costPerKwh = (t.cost / Math.max(1, slotKwh)).toFixed(2);
       return `
         <div class="shop-row ${locked ? "locked" : ""}">
           <span class="swatch" style="background:${t.color}"></span>
           <div class="shop-info">
             <b>${t.name}</b> <span class="muted">${money(t.cost)}/ea · ${owned} installed</span>
             <div class="muted small">${locked ? "Unlocks at L" + t.unlockLevel : t.blurb}</div>
+            <div class="muted small">${Math.round(slotKwh)} kWh/yr per panel · $${costPerKwh}/kWh·yr</div>
           </div>
           <div class="shop-actions">
             <button class="btn mini" data-panel="${t.id}" data-n="1" ${locked ? "disabled" : ""}>+1</button>
@@ -147,17 +150,55 @@ class UI {
         </div>`;
     }).join("");
 
+    const cap = g.parcelSheepCapacity(p);
+    const flock = Math.floor(p.sheep);
+    const over = p.sheep > cap;
+
     box.innerHTML = `
       <h3>${p.id} — Owned</h3>
       <div class="kv"><span>Capacity</span><b>${parcelKw.toFixed(1)} kW</b></div>
       <div class="kv"><span>Panels</span><b>${used} / ${p.maxPanels}</b></div>
       <div class="fill"><div class="fill-bar" style="width:${built * 100}%"></div></div>
       <div class="grid-viz">${this.gridViz(p)}</div>
+
+      <h4>Tilt angle</h4>
+      <div class="tilt-row">
+        <input type="range" id="tilt-slider" min="0" max="60" step="1" value="${p.tilt}" ${used ? "" : "disabled"} />
+        <span class="tilt-deg" id="tilt-deg">${p.tilt}°</span>
+      </div>
+      <div id="tilt-readout">${this.tiltReadoutHtml(p)}</div>
+
       <h4>Add panels</h4>
       ${panelShop}
+
+      <h4>Sheep <span class="muted small">(agrivoltaics)</span></h4>
+      <div class="kv"><span>Flock</span><b class="${over ? "neg" : ""}">${flock} / ${cap}${over ? " — overgrazed" : ""}</b></div>
+      <div class="kv"><span>Optimal flock</span><b>${cap} <span class="muted small">(1 sheep / ${g.panelsPerSheep()} panels)</span></b></div>
+      <div class="muted small">Graze the grass to cut upkeep; the flock breeds for monthly meat income. Past capacity, overgrazing cuts meat yield.</div>
+      <div class="shop-row">
+        <span class="swatch" style="background:${SHEEP.color}"></span>
+        <div class="shop-info">
+          <b>Sheep</b> <span class="muted">${money(SHEEP.cost)}/head</span>
+          <div class="muted small">~${money(flock * SHEEP.meatRevenuePerSheepPerMonth)}/mo meat at this flock</div>
+        </div>
+        <div class="shop-actions">
+          <button class="btn mini" data-sheep="1">+1</button>
+          <button class="btn mini" data-sheep="5">+5</button>
+        </div>
+      </div>
+
       <h4>Add storage</h4>
       ${batteryShop}`;
 
+    const slider = document.getElementById("tilt-slider");
+    if (slider) {
+      slider.oninput = () => {
+        g.setTilt(p.id, +slider.value);
+        document.getElementById("tilt-deg").textContent = p.tilt + "°";
+        document.getElementById("tilt-readout").innerHTML = this.tiltReadoutHtml(p);
+        this.renderStats();
+      };
+    }
     box.querySelectorAll("button[data-panel]").forEach((btn) => {
       btn.onclick = () =>
         this.act(g.addPanels(p.id, btn.dataset.panel, +btn.dataset.n));
@@ -166,6 +207,28 @@ class UI {
       btn.onclick = () =>
         this.act(g.addBattery(p.id, btn.dataset.batt, +btn.dataset.n));
     });
+    box.querySelectorAll("button[data-sheep]").forEach((btn) => {
+      btn.onclick = () => this.act(g.addSheep(p.id, +btn.dataset.sheep));
+    });
+  }
+
+  // Live tilt economics shown under the slider.
+  tiltReadoutHtml(p) {
+    const g = this.game;
+    const opt = g.optimalAnnualTilt();
+    const annual = g.parcelAnnualKwh(p);
+    const best = g.parcelAnnualKwh(p, opt);
+    const pct = best > 0 ? (annual / best) * 100 : 0;
+    const revenue = annual * 0.85 * g.config.sellPricePerKwh;
+    if (!g.parcelPanelCount(p)) {
+      return `<p class="muted small">Install panels to tune tilt. Optimal here: <b>${opt}°</b>.</p>`;
+    }
+    return `
+      <div class="kv"><span>Optimal tilt</span><b>${opt}°</b></div>
+      <div class="kv"><span>Annual output</span><b>${Math.round(annual).toLocaleString()} kWh</b></div>
+      <div class="kv"><span>Est. energy revenue</span><b>~${money(revenue)}/yr</b></div>
+      <div class="fill"><div class="fill-bar" style="width:${Math.min(100, pct)}%"></div></div>
+      <div class="muted small">${pct.toFixed(1)}% of this plot's optimal yield</div>`;
   }
 
   // A small visual grid of installed panels (capped cells for readability).
@@ -210,9 +273,12 @@ class UI {
       this.el.lastMonth.innerHTML = `<span class="muted">No months simulated yet. Press “Advance Month”.</span>`;
     } else {
       const m = g.lastMonth;
+      const meatLine = m.sheep
+        ? ` · meat ${money(m.meatRevenue)} <span class="muted small">(${m.sheep} sheep, grazing saved ${money(m.grazeSavings)})</span>`
+        : "";
       this.el.lastMonth.innerHTML = `
         <b>${m.label}</b> — produced <b>${Math.round(m.kwh).toLocaleString()} kWh</b><br>
-        revenue ${money(m.revenue)} · budget ${money(m.budget)} · upkeep -${money(m.upkeep)}
+        revenue ${money(m.revenue)}${meatLine} · budget ${money(m.budget)} · upkeep -${money(m.upkeep)}
         → net <b class="${m.net >= 0 ? "pos" : "neg"}">${money(m.net)}</b>
         <span class="muted small"> (sold ${(m.sellFraction * 100).toFixed(0)}% of output)</span>`;
     }
